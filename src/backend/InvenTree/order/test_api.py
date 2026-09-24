@@ -37,7 +37,7 @@ from order.status_codes import (
     TransferOrderStatus,
     TransferOrderStatusGroups,
 )
-from part.models import Part
+from part.models import BomItem, Part
 from stock.models import StockItem, StockLocation, StockSortOrder
 from stock.status_codes import StockHistoryCode, StockStatus
 from users.models import Owner
@@ -1917,6 +1917,131 @@ class PurchaseOrderReceiveTest(OrderTest):
         # Check that the line item has been fully received
         line.refresh_from_db()
         self.assertEqual(line.received, line.quantity)
+
+
+class InboundStatusAPITest(OrderTest):
+    """Tests for the filters used by the 'inbound status' view.
+
+    These filters link SalesOrders (shipping on a given date) to the
+    PurchaseOrderLineItems which supply the required parts.
+    """
+
+    def setUp(self):
+        """Create a SalesOrder which is due to ship today."""
+        super().setUp()
+
+        self.today = date.today()
+
+        # Part 4 is supplied by supplier parts 5 and 6 (supplier 2)
+        self.part = Part.objects.get(pk=4)
+
+        self.sales_order = models.SalesOrder.objects.create(
+            customer=Company.objects.get(pk=4),
+            reference='SO-TODAY',
+            description='Shipping today',
+            target_date=self.today,
+        )
+
+        SalesOrderLineItem.objects.create(
+            order=self.sales_order, part=self.part, quantity=5
+        )
+
+    def test_sales_order_target_date_filter(self):
+        """Test that SalesOrders can be filtered by exact target date."""
+        url = reverse('api-so-list')
+
+        response = self.get(url, {'target_date': str(self.today)}, expected_code=200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['reference'], 'SO-TODAY')
+
+        response = self.get(
+            url, {'target_date': str(self.today + timedelta(days=1))}, expected_code=200
+        )
+        self.assertEqual(len(response.data), 0)
+
+    def test_po_line_sales_order_filter(self):
+        """Test filtering of PurchaseOrderLineItems by SalesOrder."""
+        url = reverse('api-po-line-list')
+
+        response = self.get(
+            url, {'sales_order': self.sales_order.pk}, expected_code=200
+        )
+
+        self.assertEqual(len(response.data), 1)
+
+        line = response.data[0]
+        self.assertEqual(line['part'], 5)
+        self.assertEqual(line['quantity'], 1)
+        self.assertEqual(line['received'], 0)
+
+        # A SalesOrder which does not require this part returns no lines
+        other_order = models.SalesOrder.objects.create(
+            customer=Company.objects.get(pk=4),
+            reference='SO-OTHER',
+            description='No matching parts',
+            target_date=self.today,
+        )
+
+        response = self.get(url, {'sales_order': other_order.pk}, expected_code=200)
+        self.assertEqual(len(response.data), 0)
+
+    def test_po_line_sales_order_target_date_filter(self):
+        """Test filtering of PurchaseOrderLineItems by SalesOrder target date."""
+        url = reverse('api-po-line-list')
+
+        response = self.get(
+            url, {'sales_order_target_date': str(self.today)}, expected_code=200
+        )
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['part'], 5)
+
+        response = self.get(
+            url,
+            {'sales_order_target_date': str(self.today - timedelta(days=1))},
+            expected_code=200,
+        )
+        self.assertEqual(len(response.data), 0)
+
+    def test_po_line_bom_requirement(self):
+        """Test that parts required by the BOM of a sold part are included."""
+        url = reverse('api-po-line-list')
+
+        assembly = Part.objects.create(
+            name='Widget', description='An assembly which uses part 4', assembly=True
+        )
+
+        BomItem.objects.create(part=assembly, sub_part=self.part, quantity=2)
+
+        order = models.SalesOrder.objects.create(
+            customer=Company.objects.get(pk=4),
+            reference='SO-ASSEMBLY',
+            description='Shipping an assembly today',
+            target_date=self.today,
+        )
+
+        SalesOrderLineItem.objects.create(order=order, part=assembly, quantity=1)
+
+        response = self.get(url, {'sales_order': order.pk}, expected_code=200)
+
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['part'], 5)
+
+    def test_po_line_supplier_filter(self):
+        """Test filtering of PurchaseOrderLineItems by supplier."""
+        url = reverse('api-po-line-list')
+
+        n_supplier_1 = models.PurchaseOrderLineItem.objects.filter(
+            order__supplier=1
+        ).count()
+
+        response = self.get(url, {'supplier': 1}, expected_code=200)
+        self.assertEqual(len(response.data), n_supplier_1)
+
+        response = self.get(url, {'supplier': 2}, expected_code=200)
+        self.assertEqual(
+            len(response.data),
+            models.PurchaseOrderLineItem.objects.filter(order__supplier=2).count(),
+        )
 
 
 class SalesOrderTest(OrderTest):

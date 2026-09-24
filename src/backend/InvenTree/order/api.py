@@ -69,7 +69,7 @@ from order.status_codes import (
     TransferOrderStatus,
     TransferOrderStatusGroups,
 )
-from part.models import Part
+from part.models import BomItem, Part
 from users.models import Owner
 from users.permissions import check_user_permission
 
@@ -223,6 +223,10 @@ class OrderFilter(FilterSet):
 
     start_date_after = InvenTreeDateFilter(
         label=_('Start Date After'), field_name='start_date', lookup_expr='gt'
+    )
+
+    target_date = rest_filters.DateFilter(
+        label=_('Target Date'), field_name='target_date'
     )
 
     has_target_date = rest_filters.BooleanFilter(
@@ -656,6 +660,64 @@ class PurchaseOrderLineItemFilter(LineItemFilter):
             return queryset.filter(order__status__in=PurchaseOrderStatusGroups.OPEN)
         return queryset.exclude(order__status__in=PurchaseOrderStatusGroups.OPEN)
 
+    supplier = rest_filters.ModelChoiceFilter(
+        queryset=company.models.Company.objects.filter(is_supplier=True),
+        field_name='order__supplier',
+        label=_('Supplier'),
+    )
+
+    sales_order = rest_filters.ModelChoiceFilter(
+        queryset=models.SalesOrder.objects.all(),
+        method='filter_sales_order',
+        label=_('Sales Order'),
+    )
+
+    @staticmethod
+    def filter_required_parts(queryset, line_items):
+        """Filter the queryset against the parts required by the provided sales order line items.
+
+        The required parts are the parts referenced by the line items,
+        and any parts required to build them (at any BOM level).
+        """
+        required = set(line_items.values_list('part', flat=True))
+        pending = required
+
+        # Walk down the BOM tree, with a limit on the recursion depth
+        for _idx in range(10):
+            sub_parts = set(
+                BomItem.objects.filter(part__in=pending).values_list(
+                    'sub_part', flat=True
+                )
+            )
+
+            pending = sub_parts - required
+
+            if not pending:
+                break
+
+            required |= pending
+
+        return queryset.filter(part__part__in=required)
+
+    @extend_schema_field(
+        rest_framework.serializers.IntegerField(help_text=_('Sales Order'))
+    )
+    def filter_sales_order(self, queryset, name, sales_order):
+        """Filter by the parts required for a given SalesOrder."""
+        return self.filter_required_parts(
+            queryset, models.SalesOrderLineItem.objects.filter(order=sales_order)
+        )
+
+    sales_order_target_date = rest_filters.DateFilter(
+        method='filter_sales_order_target_date', label=_('Sales Order Target Date')
+    )
+
+    def filter_sales_order_target_date(self, queryset, name, value):
+        """Filter by the parts required for SalesOrders with the given target date."""
+        return self.filter_required_parts(
+            queryset, models.SalesOrderLineItem.objects.filter(order__target_date=value)
+        )
+
     received = rest_filters.BooleanFilter(
         label=_('Items Received'), method='filter_received'
     )
@@ -761,6 +823,7 @@ class PurchaseOrderLineItemViewSet(
     filter_backends = SEARCH_ORDER_FILTER
 
     ordering_field_aliases = {
+        'supplier': 'order__supplier__name',
         'MPN': 'part__manufacturer_part__MPN',
         'SKU': 'part__SKU',
         'IPN': 'part__part__IPN',
@@ -785,6 +848,7 @@ class PurchaseOrderLineItemViewSet(
         'status',
         'complete_date',
         'line',
+        'supplier',
     ]
 
     search_fields = [

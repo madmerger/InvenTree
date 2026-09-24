@@ -72,6 +72,10 @@ export const PurchaseOrderDetail = Loadable(
   lazy(() => import('./pages/purchasing/PurchaseOrderDetail'))
 );
 
+export const InboundStatus = Loadable(
+  lazy(() => import('./pages/purchasing/InboundStatus'))
+);
+
 export const SalesIndex = Loadable(
   lazy(() => import('./pages/sales/SalesIndex'))
 );
@@ -197,6 +201,7 @@ export const routes = (
         <Route index element={<Navigate to='index/' />} />
         <Route path='index/*' element={<PurchasingIndex />} />
         <Route path='purchase-order/:id/*' element={<PurchaseOrderDetail />} />
+        <Route path='inbound-status/' element={<InboundStatus />} />
         <Route path='supplier/:id/*' element={<SupplierDetail />} />
         <Route path='supplier-part/:id/*' element={<SupplierPartDetail />} />
         <Route path='manufacturer/:id/*' element={<ManufacturerDetail />} />

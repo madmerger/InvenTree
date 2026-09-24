@@ -8,8 +8,9 @@ import django_filters.rest_framework.filters as rest_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters.rest_framework.filterset import FilterSet
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 import common.filters
@@ -62,6 +63,9 @@ from .models import (
     PartStocktake,
     PartTestTemplate,
 )
+
+# Maximum number of days into the future for a stock forecast
+MAX_FORECAST_HORIZON_DAYS = 365
 
 
 class CategoryMixin:
@@ -1259,6 +1263,52 @@ class PartStocktakeDetail(PartStocktakeMixin, RetrieveUpdateDestroyAPI):
     """
 
 
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            name='horizon_days',
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            description='Number of days to forecast into the future',
+        )
+    ]
+)
+class PartStockForecast(RetrieveAPI):
+    """API endpoint for retrieving a stock quantity forecast for a single part.
+
+    The forecast is generated from the historical PartStocktake entries.
+    """
+
+    queryset = Part.objects.all()
+    serializer_class = part_serializers.PartStockForecastSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        """Return the forecast series for the requested part."""
+        from part.forecast import DEFAULT_HORIZON_DAYS, forecast_stock
+
+        part = self.get_object()
+
+        try:
+            horizon_days = int(
+                request.query_params.get('horizon_days', DEFAULT_HORIZON_DAYS)
+            )
+        except ValueError:
+            raise ValidationError({'horizon_days': _('Invalid value provided')})
+
+        if horizon_days < 1 or horizon_days > MAX_FORECAST_HORIZON_DAYS:
+            raise ValidationError({
+                'horizon_days': _('Value is outside the allowed range')
+            })
+
+        data = {
+            'part': part.pk,
+            'horizon_days': horizon_days,
+            'forecast': forecast_stock(part.pk, horizon_days=horizon_days),
+        }
+
+        return Response(self.get_serializer(data).data)
+
+
 class PartStocktakeGenerate(CreateAPI):
     """API endpoint for generating a PartStocktake instance."""
 
@@ -1719,6 +1769,12 @@ part_api_urls = [
                 'requirements/',
                 PartRequirements.as_view(),
                 name='api-part-requirements',
+            ),
+            # Endpoint for stock quantity forecasting
+            path(
+                'stock-forecast/',
+                PartStockForecast.as_view(),
+                name='api-part-stock-forecast',
             ),
             # Endpoint for duplicating a BOM for the specific Part
             path('bom-copy/', PartCopyBOM.as_view(), name='api-part-bom-copy'),

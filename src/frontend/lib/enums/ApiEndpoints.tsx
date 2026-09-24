@@ -123,6 +123,7 @@ export enum ApiEndpoints {
   part_pricing_sale = 'part/sale-price/',
   part_stocktake_list = 'part/stocktake/',
   part_stocktake_generate = 'part/stocktake/generate/',
+  part_stock_forecast = 'part/:id/stock-forecast/',
   category_list = 'part/category/',
   category_tree = 'part/category/tree/',
   category_parameter_list = 'part/category/parameters/',

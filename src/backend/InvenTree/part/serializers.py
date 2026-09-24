@@ -1313,6 +1313,28 @@ class PartStocktakeSerializer(
         return super().save()
 
 
+class PartStockForecastPointSerializer(serializers.Serializer):
+    """Serializer for a single point in a stock forecast series."""
+
+    date = serializers.DateField(read_only=True, label=_('Date'))
+
+    quantity = serializers.FloatField(read_only=True, label=_('Quantity'))
+
+    lower = serializers.FloatField(read_only=True, label=_('Lower Estimate'))
+
+    upper = serializers.FloatField(read_only=True, label=_('Upper Estimate'))
+
+
+class PartStockForecastSerializer(serializers.Serializer):
+    """Serializer for the stock forecast of a single part."""
+
+    part = serializers.IntegerField(read_only=True, label=_('Part'))
+
+    horizon_days = serializers.IntegerField(read_only=True, label=_('Horizon (days)'))
+
+    forecast = PartStockForecastPointSerializer(read_only=True, many=True)
+
+
 class PartStocktakeGenerateSerializer(serializers.Serializer):
     """Serializer for generating PartStocktake entries."""
 

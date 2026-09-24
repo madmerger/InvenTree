@@ -1,4 +1,4 @@
-import type { Browser, Page } from '@playwright/test';
+import type { Browser, BrowserContextOptions, Page } from '@playwright/test';
 import {
   type UserType,
   allaccessuser,
@@ -56,6 +56,8 @@ export interface CachedLoginOptions {
   user?: UserType;
   url?: string;
   baseUrl?: string;
+  // Extra options (e.g. video recording) for the browser context
+  contextOptions?: BrowserContextOptions;
 }
 
 // Set of users allowed to do cached login
@@ -83,6 +85,7 @@ export const doCachedLogin = async (
 
   if (fs.existsSync(fn)) {
     const page = await browser.newPage({
+      ...options?.contextOptions,
       storageState: fn
     });
     console.log(`Using cached login state for ${username}`);
@@ -101,7 +104,7 @@ export const doCachedLogin = async (
   }
 
   // Create a new blank page
-  const page = await browser.newPage();
+  const page = await browser.newPage({ ...options?.contextOptions });
 
   console.log(`No cache found - logging in for ${username}`);
 

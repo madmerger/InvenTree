@@ -17,8 +17,10 @@ import {
   SimpleGrid,
   Text
 } from '@mantine/core';
+import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useCallback, useMemo, useState } from 'react';
+import { api } from '../../App';
 import {
   DateColumn,
   DecimalColumn
@@ -55,17 +57,34 @@ function ChartTooltip({ label, payload }: Readonly<ChartTooltipProps>) {
   const quantity = payload.find((item) => item.name == 'quantity');
   const value_min = payload.find((item) => item.name == 'value_min');
   const value_max = payload.find((item) => item.name == 'value_max');
+  const forecast = payload.find((item) => item.name == 'forecast_quantity');
+  const forecast_min = payload.find((item) => item.name == 'forecast_lower');
+  const forecast_max = payload.find((item) => item.name == 'forecast_upper');
 
   return (
     <Paper px='md' py='sm' withBorder shadow='md' radius='md'>
       <Text key='title'>{formattedLabel}</Text>
       <Divider />
-      <Text key='quantity' fz='sm'>
-        {t`Quantity`} : {quantity?.value}
-      </Text>
-      <Text key='values' fz='sm'>
-        {t`Value`} : {formatPriceRange(value_min?.value, value_max?.value)}
-      </Text>
+      {quantity?.value != undefined && (
+        <Text key='quantity' fz='sm'>
+          {t`Quantity`} : {quantity?.value}
+        </Text>
+      )}
+      {(value_min?.value != undefined || value_max?.value != undefined) && (
+        <Text key='values' fz='sm'>
+          {t`Value`} : {formatPriceRange(value_min?.value, value_max?.value)}
+        </Text>
+      )}
+      {forecast?.value != undefined && (
+        <Text key='forecast' fz='sm'>
+          {t`Forecast Quantity`} : {forecast?.value}
+        </Text>
+      )}
+      {forecast_min?.value != undefined && (
+        <Text key='forecast-range' fz='sm'>
+          {t`Forecast Range`} : {forecast_min?.value} - {forecast_max?.value}
+        </Text>
+      )}
     </Paper>
   );
 }
@@ -162,8 +181,19 @@ export function PartStocktakePanel({ partId }: Readonly<{ partId: number }>) {
     [user]
   );
 
+  // Fetch the stock quantity forecast for this part
+  const forecastQuery = useQuery({
+    enabled: !!partId,
+    queryKey: ['part-stock-forecast', partId, table.records?.length],
+    queryFn: async () =>
+      api
+        .get(apiUrl(ApiEndpoints.part_stock_forecast, partId))
+        .then((response) => response.data?.forecast ?? [])
+        .catch(() => [])
+  });
+
   const chartData = useMemo(() => {
-    const records =
+    const records: any[] =
       table.records?.map((record: any) => {
         return {
           date: new Date(record.date).valueOf(),
@@ -174,10 +204,28 @@ export function PartStocktakePanel({ partId }: Readonly<{ partId: number }>) {
       }) ?? [];
 
     // Sort records to ensure correct date order
-    return records.sort((a, b) => {
-      return a < b ? -1 : 1;
-    });
-  }, [table.records]);
+    records.sort((a, b) => a.date - b.date);
+
+    const forecast: any[] =
+      forecastQuery.data?.map((point: any) => {
+        return {
+          date: new Date(point.date).valueOf(),
+          forecast_quantity: point.quantity,
+          forecast_lower: point.lower,
+          forecast_upper: point.upper
+        };
+      }) ?? [];
+
+    // Anchor the forecast series to the most recent historical data point
+    if (records.length > 0 && forecast.length > 0) {
+      const last = records[records.length - 1];
+      last.forecast_quantity = last.quantity;
+      last.forecast_lower = last.quantity;
+      last.forecast_upper = last.quantity;
+    }
+
+    return [...records, ...forecast];
+  }, [table.records, forecastQuery.data]);
 
   // Calculate the date limits of the chart
   const chartLimits: number[] = useMemo(() => {
@@ -280,6 +328,27 @@ export function PartStocktakePanel({ partId }: Readonly<{ partId: number }>) {
                 label: t`Maximum Value`,
                 color: 'teal.6',
                 yAxisId: 'right'
+              },
+              {
+                name: 'forecast_quantity',
+                label: t`Forecast Quantity`,
+                color: 'red.6',
+                strokeDasharray: '5 5',
+                yAxisId: 'left'
+              },
+              {
+                name: 'forecast_lower',
+                label: t`Forecast Lower`,
+                color: 'gray.5',
+                strokeDasharray: '2 4',
+                yAxisId: 'left'
+              },
+              {
+                name: 'forecast_upper',
+                label: t`Forecast Upper`,
+                color: 'gray.5',
+                strokeDasharray: '2 4',
+                yAxisId: 'left'
               }
             ]}
           />

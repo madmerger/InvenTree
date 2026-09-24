@@ -1,18 +1,24 @@
 """Tests for the Part model."""
 
+import datetime
 import os
 
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
 
 import part.settings
 from common.models import NotificationEntry, NotificationMessage
 from common.settings import get_global_setting, set_global_setting
 from InvenTree import version
 from InvenTree.templatetags import inventree_extras
-from InvenTree.unit_test import InvenTreeTestCase, addUserPermission
+from InvenTree.unit_test import (
+    InvenTreeAPITestCase,
+    InvenTreeTestCase,
+    addUserPermission,
+)
 
 from .models import (
     Part,
@@ -1029,3 +1035,100 @@ class PartStockHistoryTest(InvenTreeTestCase):
         N_STOCKTAKE = PartStocktake.objects.count()
         perform_stocktake()
         self.assertEqual(PartStocktake.objects.count(), N_STOCKTAKE)
+
+
+class PartStockForecastTest(InvenTreeAPITestCase):
+    """Test the stock forecasting functionality."""
+
+    fixtures = ['category', 'part', 'location', 'stock']
+
+    roles = ['part.view']
+
+    def create_history(self, part, quantities):
+        """Create a series of daily stocktake entries for the provided part."""
+        from part.models import PartStocktake
+
+        today = datetime.date.today()
+        n = len(quantities)
+
+        for idx, quantity in enumerate(quantities):
+            entry = PartStocktake.objects.create(part=part, quantity=quantity)
+
+            # The 'date' field is auto-generated, and must be updated directly
+            PartStocktake.objects.filter(pk=entry.pk).update(
+                date=today - datetime.timedelta(days=n - idx)
+            )
+
+    def test_forecast_linear(self):
+        """Test that a linear stock history results in a linear forecast."""
+        from part.forecast import forecast_stock
+
+        part = Part.objects.first()
+
+        # Stock quantity increases by 10 units per day
+        self.create_history(part, [100, 110, 120, 130, 140])
+
+        forecast = forecast_stock(part.pk, horizon_days=30)
+
+        self.assertEqual(len(forecast), 30)
+
+        for idx, point in enumerate(forecast):
+            self.assertAlmostEqual(point['quantity'], 140 + 10 * (idx + 1), places=3)
+            self.assertLessEqual(point['lower'], point['quantity'])
+            self.assertGreaterEqual(point['upper'], point['quantity'])
+
+        # Dates are sequential, starting the day after the last stocktake
+        dates = [point['date'] for point in forecast]
+        self.assertEqual(dates, sorted(dates))
+        self.assertEqual(dates[0], datetime.date.today())
+
+    def test_forecast_insufficient_data(self):
+        """Test the fallback behaviour when there is insufficient history."""
+        from part.forecast import forecast_stock
+
+        part = Part.objects.first()
+
+        # No history at all
+        self.assertEqual(forecast_stock(part.pk), [])
+
+        # A single data point - flat forecast
+        self.create_history(part, [55])
+
+        forecast = forecast_stock(part.pk, horizon_days=10)
+
+        self.assertEqual(len(forecast), 10)
+
+        for point in forecast:
+            self.assertEqual(point['quantity'], 55)
+            self.assertEqual(point['lower'], 55)
+            self.assertEqual(point['upper'], 55)
+
+    def test_forecast_api(self):
+        """Test the stock forecast API endpoint."""
+        part = Part.objects.first()
+
+        self.create_history(part, [10, 20, 30, 40])
+
+        url = reverse('api-part-stock-forecast', kwargs={'pk': part.pk})
+
+        response = self.get(url, expected_code=200)
+
+        self.assertEqual(response.data['part'], part.pk)
+        self.assertEqual(response.data['horizon_days'], 30)
+        self.assertEqual(len(response.data['forecast']), 30)
+
+        point = response.data['forecast'][0]
+
+        for key in ['date', 'quantity', 'lower', 'upper']:
+            self.assertIn(key, point)
+
+        self.assertAlmostEqual(float(point['quantity']), 50, places=3)
+
+        # Custom horizon
+        response = self.get(url, {'horizon_days': 7}, expected_code=200)
+        self.assertEqual(len(response.data['forecast']), 7)
+
+        # Invalid horizon values
+        self.get(url, {'horizon_days': 0}, expected_code=400)
+        self.get(url, {'horizon_days': 1000}, expected_code=400)
+        self.get(url, {'horizon_days': 'abc'}, expected_code=400)

@@ -318,6 +318,35 @@ test('Tables - Columns', async ({ browser }) => {
   await page.getByRole('menuitem', { name: 'Project Code' }).click();
 });
 
+test('Tables - Column Presets', async ({ browser }) => {
+  const page = await doCachedLogin(browser, {
+    url: 'stock/location/index/stock-items',
+    user: stevenuser
+  });
+
+  const descriptionItem = page.getByRole('menuitem', { name: 'Description' });
+
+  // Hide a column, and save the result as a named preset
+  await page.getByLabel('table-select-columns').click();
+  await descriptionItem.click();
+  await page.getByLabel('column-preset-name').fill('Minimal');
+  await page.getByLabel('save-column-preset').click();
+
+  // Re-enable the column
+  await descriptionItem.click();
+  await expect(descriptionItem.getByRole('checkbox')).toBeChecked();
+
+  // Applying the preset restores the saved column visibility
+  await page.getByRole('menuitem', { name: 'Minimal' }).click();
+  await expect(descriptionItem.getByRole('checkbox')).not.toBeChecked();
+
+  // Delete the preset
+  await page.getByLabel('delete-column-preset-Minimal').click();
+  await expect(page.getByRole('menuitem', { name: 'Minimal' })).toHaveCount(0);
+
+  await page.keyboard.press('Escape');
+});
+
 test('Tables - Sorting', async ({ browser }) => {
   // Go to the "stock list" page
   const page = await doCachedLogin(browser, {

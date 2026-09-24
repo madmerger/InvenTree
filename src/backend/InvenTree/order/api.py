@@ -656,6 +656,38 @@ class PurchaseOrderLineItemFilter(LineItemFilter):
             return queryset.filter(order__status__in=PurchaseOrderStatusGroups.OPEN)
         return queryset.exclude(order__status__in=PurchaseOrderStatusGroups.OPEN)
 
+    supplier = rest_filters.ModelChoiceFilter(
+        queryset=company.models.Company.objects.filter(is_supplier=True),
+        field_name='order__supplier',
+        label=_('Supplier'),
+    )
+
+    sales_order = rest_filters.ModelChoiceFilter(
+        queryset=models.SalesOrder.objects.all(),
+        method='filter_sales_order',
+        label=_('Sales Order'),
+    )
+
+    @extend_schema_field(
+        rest_framework.serializers.IntegerField(help_text=_('Sales Order'))
+    )
+    def filter_sales_order(self, queryset, name, sales_order):
+        """Filter by the parts required by the provided SalesOrder.
+
+        Returns the purchase order line items for any part which is required
+        by the specified sales order: either directly referenced by a line item,
+        or required (recursively) by the BOM of such a part.
+        """
+        parts = set()
+
+        for line in models.SalesOrderLineItem.objects.filter(
+            order=sales_order
+        ).prefetch_related('part'):
+            parts.add(line.part)
+            parts.update(line.part.getRequiredParts(recursive=True))
+
+        return queryset.filter(part__part__in=[p.pk for p in parts if p])
+
     received = rest_filters.BooleanFilter(
         label=_('Items Received'), method='filter_received'
     )
@@ -890,6 +922,18 @@ class SalesOrderFilter(OrderFilter):
 
         # Now we have a list of matching IDs, filter the queryset
         return queryset.filter(pk__in=sales_orders)
+
+    shipped_today = rest_filters.BooleanFilter(
+        label=_('Shipped Today'), method='filter_shipped_today'
+    )
+
+    def filter_shipped_today(self, queryset, name, value):
+        """Filter by orders which have a shipment scheduled or shipped today."""
+        q = Q(shipments__shipment_date=current_date())
+
+        if str2bool(value):
+            return queryset.filter(q).distinct()
+        return queryset.exclude(q).distinct()
 
     completed_before = InvenTreeDateFilter(
         label=_('Completed Before'), field_name='shipment_date', lookup_expr='lt'

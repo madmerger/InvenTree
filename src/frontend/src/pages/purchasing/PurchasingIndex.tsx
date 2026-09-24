@@ -8,7 +8,8 @@ import {
   IconListDetails,
   IconPackageExport,
   IconShoppingCart,
-  IconTable
+  IconTable,
+  IconTruckLoading
 } from '@tabler/icons-react';
 import { useCallback, useMemo } from 'react';
 
@@ -33,6 +34,7 @@ import PurchaseOrderParametricTable from '../../tables/purchasing/PurchaseOrderP
 import { PurchaseOrderTable } from '../../tables/purchasing/PurchaseOrderTable';
 import SupplierPartParametricTable from '../../tables/purchasing/SupplierPartParametricTable';
 import { SupplierPartTable } from '../../tables/purchasing/SupplierPartTable';
+import { InboundStatusPanel } from './InboundStatus';
 
 function PurchaseOrderCalendar() {
   const calendarFilters: TableFilter[] = useMemo(() => {
@@ -118,6 +120,15 @@ export default function PurchasingIndex() {
           }
         ]
       }),
+      {
+        name: 'inbound-status',
+        label: t`Inbound Status`,
+        icon: <IconTruckLoading />,
+        hidden:
+          !user.hasViewVisible(UserRoles.purchase_order) ||
+          !user.hasViewRole(UserRoles.sales_order),
+        content: <InboundStatusPanel />
+      },
       SegmentedControlPanel({
         name: 'suppliers',
         label: t`Suppliers`,

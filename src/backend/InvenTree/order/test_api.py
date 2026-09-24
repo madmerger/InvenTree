@@ -37,7 +37,7 @@ from order.status_codes import (
     TransferOrderStatus,
     TransferOrderStatusGroups,
 )
-from part.models import Part
+from part.models import BomItem, Part
 from stock.models import StockItem, StockLocation, StockSortOrder
 from stock.status_codes import StockHistoryCode, StockStatus
 from users.models import Owner
@@ -1043,6 +1043,52 @@ class PurchaseOrderLineItemTest(OrderTest):
         self.filter({'has_pricing': 1}, 0)
         self.filter({'has_pricing': 0}, 5)
 
+    def test_po_line_sales_order_filter(self):
+        """Test the 'sales_order' filter for the PurchaseOrderLineItem endpoint."""
+        sales_order = models.SalesOrder.objects.get(pk=1)
+
+        # No line items for this sales order yet
+        self.filter({'sales_order': sales_order.pk}, 0)
+
+        # Add a line item for a part which is on order from multiple suppliers
+        part = SupplierPart.objects.get(pk=1).part
+        models.SalesOrderLineItem.objects.create(
+            order=sales_order, part=part, quantity=1
+        )
+
+        expected = models.PurchaseOrderLineItem.objects.filter(part__part=part).count()
+
+        self.assertGreater(expected, 0)
+
+        response = self.filter({'sales_order': sales_order.pk}, expected)
+
+        for item in response.data:
+            line = models.PurchaseOrderLineItem.objects.get(pk=item['pk'])
+            self.assertEqual(line.part.part, part)
+
+        # Parts required by the BOM of a sales order line are included too
+        assembly = Part.objects.create(
+            name='Test Assembly', description='An assembly which requires a part'
+        )
+
+        BomItem.objects.create(part=assembly, sub_part=part, quantity=1)
+
+        other_order = models.SalesOrder.objects.get(pk=2)
+        models.SalesOrderLineItem.objects.create(
+            order=other_order, part=assembly, quantity=1
+        )
+
+        self.filter({'sales_order': other_order.pk}, expected)
+
+    def test_po_line_supplier_filter(self):
+        """Test the 'supplier' filter for the PurchaseOrderLineItem endpoint."""
+        for supplier in Company.objects.filter(is_supplier=True):
+            expected = models.PurchaseOrderLineItem.objects.filter(
+                order__supplier=supplier
+            ).count()
+
+            self.filter({'supplier': supplier.pk}, expected)
+
     def test_po_line_bulk_delete(self):
         """Test that we can bulk delete multiple PurchaseOrderLineItems via the API."""
         n = models.PurchaseOrderLineItem.objects.count()
@@ -1951,6 +1997,27 @@ class SalesOrderTest(OrderTest):
         # Filter by "assigned_to_me"
         self.filter({'assigned_to_me': 1}, 0)
         self.filter({'assigned_to_me': 0}, 6)
+
+    def test_so_filter_shipped_today(self):
+        """Test the 'shipped_today' filter for the SalesOrder endpoint."""
+        # Initially, no shipments have a shipment_date
+        self.filter({'shipped_today': True}, 0)
+        self.filter({'shipped_today': False}, 6)
+
+        shipment = models.SalesOrderShipment.objects.get(pk=1)
+        shipment.shipment_date = date.today()
+        shipment.save()
+
+        response = self.filter({'shipped_today': True}, 1)
+        self.assertEqual(response.data[0]['pk'], shipment.order.pk)
+
+        self.filter({'shipped_today': False}, 5)
+
+        # A shipment scheduled for another date is not included
+        shipment.shipment_date = date.today() - timedelta(days=1)
+        shipment.save()
+
+        self.filter({'shipped_today': True}, 0)
 
     def test_total_price(self):
         """Unit tests for the 'total_price' field."""

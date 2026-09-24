@@ -104,11 +104,12 @@ export function TableColumnSelect({
                   aria-label='column-preset-name'
                   onChange={(event) => setPresetName(event.currentTarget.value)}
                   onKeyDown={(event) => {
-                    // Prevent the menu from hijacking keyboard input
-                    event.stopPropagation();
-
                     if (event.key == 'Enter') {
                       savePreset();
+                    } else if (event.key != 'Escape') {
+                      // Prevent the menu from hijacking keyboard input
+                      // (but allow Escape to close the menu)
+                      event.stopPropagation();
                     }
                   }}
                 />

@@ -316,6 +316,7 @@ INSTALLED_APPS = [
     'report.apps.ReportConfig',
     'scim.apps.ScimConfig',
     'stock.apps.StockConfig',
+    'survey.apps.SurveyConfig',
     'users.apps.UsersConfig',
     'machine.apps.MachineConfig',
     'data_exporter.apps.DataExporterConfig',

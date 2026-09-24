@@ -234,4 +234,10 @@ def get_ruleset_ignore() -> list[str]:
         'importer_dataimportrow',
         # SCIM - superuser-only singleton configuration, managed via the Admin Center
         'scim_scimconfiguration',
+        # Surveys - available to any authenticated user
+        'survey_survey',
+        'survey_question',
+        'survey_choice',
+        'survey_surveyresponse',
+        'survey_answer',
     ]

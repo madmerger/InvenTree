@@ -250,6 +250,10 @@ export enum ApiEndpoints {
   machine_setting_list = 'machine/:machine/settings/',
   machine_setting_detail = 'machine/:machine/settings/:config_type/',
 
+  // Survey API endpoints
+  survey_list = 'survey/',
+  survey_response_list = 'survey/response/',
+
   // Miscellaneous API endpoints
   attachment_list = 'attachment/',
   instance_info = 'instance-info/',

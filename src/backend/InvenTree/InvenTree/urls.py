@@ -28,6 +28,7 @@ import plugin.api
 import report.api
 import scim.api
 import stock.api
+import survey.api
 import users.api
 from plugin.urls import get_plugin_urls, get_wellknown_urls
 from web.urls import cui_compatibility_urls
@@ -66,6 +67,7 @@ apipatterns = [
     path('search/', APISearchView.as_view(), name='api-search'),
     path('settings/', include(common.api.settings_api_urls)),
     path('stock/', include(stock.api.stock_api_urls)),
+    path('survey/', include(survey.api.survey_api_urls)),
     path(
         'generate/',
         include([

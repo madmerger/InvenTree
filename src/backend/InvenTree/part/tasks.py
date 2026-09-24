@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from django.core.exceptions import ValidationError
-from django.db.models import Model
+from django.db.models import F, Model
 from django.utils.translation import gettext_lazy as _
 
 import structlog
@@ -224,6 +224,157 @@ def check_stale_stock():
 
     logger.info(
         'Scheduled stale stock notifications for %s users', len(user_stale_items)
+    )
+
+
+@tracer.start_as_current_span('check_low_stock')
+@scheduled_task(ScheduledTask.DAILY)
+def check_low_stock():
+    """Check all active parts for 'low stock' levels.
+
+    This function runs daily (if the PART_LOW_STOCK_CHECK setting is enabled),
+    and notifies subscribed users for any part which has fallen below the
+    configured minimum stock level.
+
+    If the PART_LOW_STOCK_AUTO_ORDER setting is enabled, draft purchase orders
+    are generated for the low stock parts.
+    """
+    import part.filters
+    from part.models import Part
+
+    if not get_global_setting('PART_LOW_STOCK_CHECK', False, cache=False):
+        logger.info('Low stock check is not enabled - exiting')
+        return
+
+    # Pre-filter the parts using an annotated stock quantity.
+    # Note that this annotation ignores variant stock,
+    # and thus may return parts which are not actually low on stock.
+    queryset = (
+        Part.objects
+        .filter(active=True, minimum_stock__gt=0)
+        .annotate(total_in_stock=part.filters.annotate_total_stock())
+        .filter(total_in_stock__lt=F('minimum_stock'))
+    )
+
+    low_stock_parts = [p for p in queryset if p.is_part_low_on_stock()]
+
+    if not low_stock_parts:
+        logger.info('No low stock parts found')
+        return
+
+    logger.info('Found %s parts with low stock', len(low_stock_parts))
+
+    with batch_offload_tasks():
+        for p in low_stock_parts:
+            offload_task(notify_low_stock, p, group='notification')
+
+    if get_global_setting('PART_LOW_STOCK_AUTO_ORDER', False, cache=False):
+        create_draft_purchase_orders(low_stock_parts)
+
+
+@tracer.start_as_current_span('create_draft_purchase_orders')
+def create_draft_purchase_orders(parts: list):
+    """Create draft purchase orders for the provided 'low stock' parts.
+
+    A single draft (PENDING) purchase order is created for each supplier,
+    with a line item for each part which is to be ordered from that supplier.
+
+    The generated orders are "suggestions" only - they are not placed,
+    and must be reviewed by a user before being issued to the supplier.
+
+    Arguments:
+        parts: List of Part instances which are low on stock
+    """
+    from order.models import PurchaseOrder
+
+    # Draft purchase order for each supplier
+    orders: dict[int, PurchaseOrder] = {}
+
+    for prt in parts:
+        if not prt.purchaseable:
+            continue
+
+        supplier_part = prt.default_supplier
+
+        if supplier_part is None or supplier_part.supplier is None:
+            continue
+
+        quantity = low_stock_order_quantity(prt)
+
+        if quantity <= 0:
+            continue
+
+        supplier = supplier_part.supplier
+
+        if supplier.pk not in orders:
+            orders[supplier.pk] = PurchaseOrder.objects.create(
+                supplier=supplier,
+                description=_('Automatically generated purchase order suggestion'),
+            )
+
+        order = orders[supplier.pk]
+
+        try:
+            order.add_line_item(supplier_part, quantity)
+        except ValidationError as exc:
+            logger.warning(
+                'Failed to add line item for part %s to order %s: %s',
+                prt.name,
+                order.reference,
+                exc,
+            )
+
+    for order in orders.values():
+        if order.lines.count() == 0:
+            # No line items were added to this order - remove it again
+            order.delete()
+            continue
+
+        notify_purchase_order_suggestion(order)
+
+    logger.info('Created %s draft purchase orders', len(orders))
+
+
+def low_stock_order_quantity(prt: Model) -> int:
+    """Return the quantity of the provided part which should be ordered.
+
+    The 'quantity_to_order' property accounts for outstanding build and sales orders,
+    but ignores the case where a part is simply below its minimum stock level.
+    """
+    deficit = prt.minimum_stock - prt.total_stock - prt.on_order
+
+    return int(max(prt.quantity_to_order, deficit, 0))
+
+
+@tracer.start_as_current_span('notify_purchase_order_suggestion')
+def notify_purchase_order_suggestion(order: Model):
+    """Notify interested users that a draft purchase order has been generated.
+
+    Arguments:
+        order: The PurchaseOrder instance which has been created
+    """
+    name = _('Purchase order suggestion')
+    message = _(
+        f'A draft purchase order has been created for {order.supplier.name} for parts which are low on stock'
+    )
+
+    context = {
+        'order': order,
+        'lines': order.lines.all(),
+        'supplier': order.supplier,
+        'name': name,
+        'message': message,
+        'link': InvenTree.helpers_model.construct_absolute_url(
+            order.get_absolute_url()
+        ),
+        'template': {'html': 'email/purchase_order_suggestion.html', 'subject': name},
+    }
+
+    common.notifications.trigger_notification(
+        order,
+        'part.notify_purchase_order_suggestion',
+        target_fnc=order.subscribed_users,
+        context=context,
     )
 
 

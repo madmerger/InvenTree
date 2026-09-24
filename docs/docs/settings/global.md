@@ -184,6 +184,8 @@ Configuration of label printing:
 {{ globalsetting("PART_COPY_TESTS") }}
 {{ globalsetting("PART_CATEGORY_PARAMETERS") }}
 {{ globalsetting("PART_CATEGORY_DEFAULT_ICON") }}
+{{ globalsetting("PART_LOW_STOCK_CHECK") }}
+{{ globalsetting("PART_LOW_STOCK_AUTO_ORDER") }}
 
 #### Parameter Templates
 

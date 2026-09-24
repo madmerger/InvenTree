@@ -978,6 +978,151 @@ class PartNotificationTest(InvenTreeTestCase):
         self.assertEqual(Error.objects.count(), 0)
 
 
+class PartLowStockCheckTest(InvenTreeTestCase):
+    """Tests for the scheduled 'check_low_stock' task."""
+
+    fixtures = ['location', 'category', 'part', 'stock']
+
+    def setUp(self):
+        """Create a low stock part, subscribed to by the test user."""
+        super().setUp()
+
+        self.ensurePluginsLoaded()
+
+        addUserPermission(self.user, 'part', 'part', 'view')
+        addUserPermission(self.user, 'order', 'purchaseorder', 'view')
+        self.user.is_active = True
+        self.user.save()
+
+        self.part = Part.objects.get(name='R_2K2_0805')
+        self.part.purchaseable = True
+        self.part.minimum_stock = self.part.get_stock_count() + 100
+        self.part.save()
+
+        self.part.set_starred(self.user, True)
+
+        # Start from a clean slate - saving the part above generates notifications
+        NotificationEntry.objects.all().delete()
+        NotificationMessage.objects.all().delete()
+
+    def create_supplier_part(self, sku: str = 'LS-001'):
+        """Create a supplier part for the low stock part."""
+        from company.models import Company, SupplierPart
+
+        supplier, _created = Company.objects.get_or_create(
+            name='Low Stock Supplier', is_supplier=True
+        )
+
+        return SupplierPart.objects.create(part=self.part, supplier=supplier, SKU=sku)
+
+    def run_check(self):
+        """Run the 'check_low_stock' task, flushing any batched background tasks."""
+        from part.tasks import check_low_stock
+
+        with self.captureOnCommitCallbacks(execute=True):
+            check_low_stock()
+
+    def test_check_disabled(self):
+        """Test that no notifications are generated if the check is disabled."""
+        set_global_setting('PART_LOW_STOCK_CHECK', False)
+
+        self.run_check()
+
+        self.assertEqual(NotificationMessage.objects.count(), 0)
+
+    def test_low_stock_notification(self):
+        """Test that the daily check generates a notification for a low stock part."""
+        set_global_setting('PART_LOW_STOCK_CHECK', True)
+
+        self.run_check()
+
+        messages = NotificationMessage.objects.filter(
+            target_object_id=self.part.pk, user=self.user
+        )
+
+        self.assertEqual(messages.count(), 1)
+        self.assertEqual(messages.first().name, 'Low stock notification')
+
+    def test_auto_order(self):
+        """Test that a draft purchase order is created for a low stock part."""
+        from order.models import PurchaseOrder
+        from order.status_codes import PurchaseOrderStatus
+
+        supplier_part = self.create_supplier_part()
+
+        set_global_setting('PART_LOW_STOCK_CHECK', True)
+        set_global_setting('PART_LOW_STOCK_AUTO_ORDER', True)
+
+        self.run_check()
+
+        orders = PurchaseOrder.objects.filter(supplier=supplier_part.supplier)
+
+        self.assertEqual(orders.count(), 1)
+
+        order = orders.first()
+
+        # The order is a "suggestion" only, and must not be placed
+        self.assertEqual(order.status, PurchaseOrderStatus.PENDING.value)
+        self.assertEqual(order.lines.count(), 1)
+
+        line = order.lines.first()
+
+        self.assertEqual(line.part, supplier_part)
+        self.assertEqual(
+            line.quantity, self.part.minimum_stock - self.part.get_stock_count()
+        )
+
+        # The subscribed user is notified about the suggested order
+        self.assertEqual(
+            NotificationMessage.objects.filter(
+                target_object_id=order.pk, user=self.user
+            ).count(),
+            1,
+        )
+
+    def test_auto_order_disabled(self):
+        """Test that no purchase order is created if auto ordering is disabled."""
+        from order.models import PurchaseOrder
+
+        self.create_supplier_part()
+
+        set_global_setting('PART_LOW_STOCK_CHECK', True)
+        set_global_setting('PART_LOW_STOCK_AUTO_ORDER', False)
+
+        self.run_check()
+
+        self.assertEqual(PurchaseOrder.objects.count(), 0)
+
+    def test_auto_order_no_default_supplier(self):
+        """Test that no purchase order is created without a default supplier part."""
+        from order.models import PurchaseOrder
+
+        self.assertIsNone(self.part.default_supplier)
+
+        set_global_setting('PART_LOW_STOCK_CHECK', True)
+        set_global_setting('PART_LOW_STOCK_AUTO_ORDER', True)
+
+        self.run_check()
+
+        self.assertEqual(PurchaseOrder.objects.count(), 0)
+
+    def test_auto_order_not_purchaseable(self):
+        """Test that no purchase order is created for a non-purchaseable part."""
+        from order.models import PurchaseOrder
+
+        self.create_supplier_part()
+
+        self.part.purchaseable = False
+        self.part.save()
+
+        set_global_setting('PART_LOW_STOCK_CHECK', True)
+        set_global_setting('PART_LOW_STOCK_AUTO_ORDER', True)
+
+        self.run_check()
+
+        self.assertEqual(PurchaseOrder.objects.count(), 0)
+
+
 class PartStockHistoryTest(InvenTreeTestCase):
     """Test generation of stock history entries."""
 

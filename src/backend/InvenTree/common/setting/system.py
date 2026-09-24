@@ -546,6 +546,21 @@ SYSTEM_SETTINGS: dict[str, InvenTreeSettingsKeyType] = {
         '{{ part.revision if part.revision }}',
         'validator': validate_part_name_format,
     },
+    'PART_LOW_STOCK_CHECK': {
+        'name': _('Low Stock Check'),
+        'description': _('Perform a daily check for parts which are low on stock'),
+        'default': False,
+        'validator': bool,
+        'flags': [SettingFlag.TOGGLE],
+    },
+    'PART_LOW_STOCK_AUTO_ORDER': {
+        'name': _('Low Stock Auto Order'),
+        'description': _(
+            'Automatically create draft purchase orders for parts which are low on stock'
+        ),
+        'default': False,
+        'validator': bool,
+    },
     'PART_CATEGORY_DEFAULT_ICON': {
         'name': _('Part Category Default Icon'),
         'description': _('Part category default icon (empty means no icon)'),

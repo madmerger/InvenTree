@@ -1,0 +1,33 @@
+{% extends "email/email.html" %}
+
+{% load i18n %}
+{% load inventree_extras %}
+
+{% block title %}
+{{ message }}
+{% if link %}
+<p>{% trans "Click on the following link to view this order" %}: <a href="{{ link }}">{{ link }}</a></p>
+{% endif %}
+{% endblock title %}
+
+{% block body %}
+<tr style="height: 3rem; border-bottom: 1px solid">
+    <th>{% trans "Order" %}</th>
+    <th>{% trans "Supplier" %}</th>
+    <th>{% trans "Part" %}</th>
+    <th>{% trans "Quantity" %}</th>
+</tr>
+
+{% for line in lines %}
+<tr style="height: 3rem">
+    <td style="text-align: center;">{{ order.reference }}</td>
+    <td style="text-align: center;">{{ supplier.name }}</td>
+    <td style="text-align: center;">{{ line.part.part.full_name }}</td>
+    <td style="text-align: center;">{% decimal line.quantity %}</td>
+</tr>
+{% endfor %}
+{% endblock body %}
+
+{% block footer_prefix %}
+<p><em>{% trans "This purchase order has been created automatically as a suggestion, and has not been placed" %}.</em></p>
+{% endblock footer_prefix %}

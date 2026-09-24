@@ -51,7 +51,11 @@ export default function InvenTreeTableHeader({
   filters,
   queryFilters,
   clearQueryFilters,
-  toggleColumn
+  toggleColumn,
+  columnPresets,
+  saveColumnPreset,
+  applyColumnPreset,
+  deleteColumnPreset
 }: Readonly<{
   tableUrl?: string;
   tableState: TableState;
@@ -62,6 +66,10 @@ export default function InvenTreeTableHeader({
   queryFilters?: URLSearchParams;
   clearQueryFilters: () => void;
   toggleColumn: (column: string) => void;
+  columnPresets?: Record<string, string[]>;
+  saveColumnPreset?: (name: string) => void;
+  applyColumnPreset?: (name: string) => void;
+  deleteColumnPreset?: (name: string) => void;
 }>) {
   // Filter list visibility
   const [filtersVisible, setFiltersVisible] = useState<boolean>(false);
@@ -287,6 +295,10 @@ export default function InvenTreeTableHeader({
             <TableColumnSelect
               columns={columns}
               onToggleColumn={toggleColumn}
+              presets={columnPresets}
+              onSavePreset={saveColumnPreset}
+              onApplyPreset={applyColumnPreset}
+              onDeletePreset={deleteColumnPreset}
             />
           )}
           {tableProps.enableFilters && filters.length > 0 && (

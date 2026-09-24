@@ -12,6 +12,7 @@ const DEFAULT_PAGE_SIZE: number = 25;
  * - hiddenColumns: An array of column names that are hidden in a given table.
  * - columnNames: An object mapping table keys to arrays of column names.
  * - sorting: An object mapping table keys to sorting configurations.
+ * - columnPresets: Named sets of hidden columns, for a given table.
  */
 export interface StoredTableStateProps {
   pageSize: number;
@@ -30,6 +31,12 @@ export interface StoredTableStateProps {
   hiddenColumns: Record<string, string[]>;
   getHiddenColumns: (tableKey: string) => string[] | null;
   setHiddenColumns: (tableKey: string) => (columns: string[]) => void;
+  columnPresets: Record<string, Record<string, string[]>>;
+  getColumnPresets: (tableKey: string) => Record<string, string[]>;
+  saveColumnPreset: (
+    tableKey: string
+  ) => (name: string, hiddenColumns: string[]) => void;
+  deleteColumnPreset: (tableKey: string) => (name: string) => void;
 }
 
 export const useStoredTableState = create<StoredTableStateProps>()(
@@ -80,6 +87,39 @@ export const useStoredTableState = create<StoredTableStateProps>()(
           hiddenColumns: {
             ...get().hiddenColumns,
             [tableKey]: columns
+          }
+        });
+      },
+      columnPresets: {},
+      getColumnPresets: (tableKey) => {
+        return get().columnPresets?.[tableKey] ?? {};
+      },
+      saveColumnPreset: (tableKey) => (name, hiddenColumns) => {
+        const presetName = name.trim();
+
+        if (!presetName) {
+          return;
+        }
+
+        set({
+          columnPresets: {
+            ...get().columnPresets,
+            [tableKey]: {
+              ...get().columnPresets?.[tableKey],
+              [presetName]: hiddenColumns
+            }
+          }
+        });
+      },
+      deleteColumnPreset: (tableKey) => (name) => {
+        const presets = { ...(get().columnPresets?.[tableKey] ?? {}) };
+
+        delete presets[name];
+
+        set({
+          columnPresets: {
+            ...get().columnPresets,
+            [tableKey]: presets
           }
         });
       }

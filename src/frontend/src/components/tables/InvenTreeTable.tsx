@@ -105,7 +105,10 @@ export function InvenTreeTableInternal<T extends Record<string, any>>({
     getTableColumnNames,
     setTableColumnNames,
     getTableSorting,
-    setTableSorting
+    setTableSorting,
+    columnPresets,
+    saveColumnPreset,
+    deleteColumnPreset
   } = useStoredTableState();
 
   const [fieldNames, setFieldNames] = useState<Record<string, string>>({});
@@ -447,6 +450,41 @@ export function InvenTreeTableInternal<T extends Record<string, any>>({
       setHiddenColumns(cacheKey)(hiddenColumns);
     },
     [cacheKey, dataColumns]
+  );
+
+  // Named column visibility presets available for this table
+  const savedColumnPresets: Record<string, string[]> = useMemo(() => {
+    return columnPresets?.[cacheKey] ?? {};
+  }, [columnPresets, cacheKey]);
+
+  // Save the current column visibility state as a named preset
+  const saveColumnPresetCallback = useCallback(
+    (name: string) => {
+      saveColumnPreset(cacheKey)(name, tableState.hiddenColumns ?? []);
+    },
+    [cacheKey, saveColumnPreset, tableState.hiddenColumns]
+  );
+
+  // Apply a named column visibility preset
+  const applyColumnPresetCallback = useCallback(
+    (name: string) => {
+      const hiddenColumns = savedColumnPresets[name];
+
+      if (hiddenColumns == null) {
+        return;
+      }
+
+      tableState.setHiddenColumns(hiddenColumns);
+      setHiddenColumns(cacheKey)(hiddenColumns);
+    },
+    [cacheKey, savedColumnPresets, tableState.setHiddenColumns]
+  );
+
+  const deleteColumnPresetCallback = useCallback(
+    (name: string) => {
+      deleteColumnPreset(cacheKey)(name);
+    },
+    [cacheKey, deleteColumnPreset]
   );
 
   // Generate an ordered list of column names,
@@ -1029,6 +1067,10 @@ export function InvenTreeTableInternal<T extends Record<string, any>>({
               queryFilters={tableSearchParams}
               clearQueryFilters={clearTableSearchParams}
               toggleColumn={toggleColumn}
+              columnPresets={savedColumnPresets}
+              saveColumnPreset={saveColumnPresetCallback}
+              applyColumnPreset={applyColumnPresetCallback}
+              deleteColumnPreset={deleteColumnPresetCallback}
             />
           </Boundary>
         )}

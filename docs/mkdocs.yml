@@ -84,6 +84,8 @@ nav:
       - Roadmap: develop/roadmap.md
       - Devcontainer: develop/devcontainer.md
       - React Frontend: develop/react-frontend.md
+    - Requirements:
+      - Tax Rate Change: requirements/tax_rate_change_requirements.md
     - Project Details:
       - Governance: project/governance.md
       - Project Security: security.md
